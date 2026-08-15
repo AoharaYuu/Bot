@@ -37,12 +37,12 @@ DISCORD_BOT_TOKEN = load_bot_token()
 # ==========================================
 # 2. 봇 버전 및 서버별 설정 파일 관리
 # ==========================================
-# 💡 코드를 수정하고 배포할 때 아래 BOT_VERSION을 올려주면 자동으로 업데이트 공지가 발송됩니다.
-BOT_VERSION = "v1.5.0"
+# 💡 버전 0.2.0 상향 적용
+BOT_VERSION = "v1.7.0"
 UPDATE_NOTES = (
-    "• 봇 실행 시 버전 체크 및 업데이트 공지 발송이 완전 자동화되었습니다.\n"
-    "• `last_version.txt` 파일이 시스템에 의해 자동으로 생성 및 관리됩니다.\n"
-    "• `#음악-명령어` 자동 생성 및 스마트 음성 채널 자동 접속 기능이 유지됩니다."
+    "• `🎵 음악` 전용 카테고리가 자동으로 생성됩니다.\n"
+    "• 카테고리 내부에 `＃음악-명령어` (채팅)와 `🔊 음악-듣기방` (음성) 채널이 세트로 자동 구축됩니다.\n"
+    "• 배포 즉시 디스코드에 슬래시 명령어가 실시간으로 반영되도록 동기화 성능이 개선되었습니다."
 )
 
 VERSION_FILE = "last_version.txt"
@@ -75,7 +75,7 @@ intents.reactions = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # ==========================================
-# 4. 음악 옵션 및 채널 관리 헬퍼 함수
+# 4. 음악 옵션 및 카테고리/채널 관리 함수
 # ==========================================
 YTDL_OPTIONS = {
     'format': 'bestaudio[ext=opus]/bestaudio[ext=m4a]/bestaudio/best',
@@ -97,50 +97,88 @@ FFMPEG_OPTIONS = {
 
 ytdl_client = ytdl.YoutubeDL(YTDL_OPTIONS)
 
-async def ensure_music_channel(guild):
-    """서버 내 음악 전용 채널 존재 여부를 확인하고 없으면 자동 생성합니다."""
+async def ensure_music_category_and_channels(guild):
+    """'🎵 음악' 카테고리와 내부 음악 전용 텍스트/음성 채널 세트를 자동 생성 및 연결합니다."""
     settings = load_settings()
     guild_id_str = str(guild.id)
 
-    if guild_id_str in settings and "music_channel_id" in settings[guild_id_str]:
-        m_channel = guild.get_channel(settings[guild_id_str]["music_channel_id"])
-        if m_channel:
-            return m_channel
-
-    for channel in guild.text_channels:
-        if channel.name == "음악-명령어":
-            if guild_id_str not in settings:
-                settings[guild_id_str] = {}
-            settings[guild_id_str]["music_channel_id"] = channel.id
-            save_settings(settings)
-            return channel
-
-    try:
-        new_channel = await guild.create_text_channel("음악-명령어", topic="🎵 음악 관련 명령어만 사용할 수 있는 전용 채널입니다.")
-        embed = discord.Embed(
-            title="🎵 음악 전용 채널에 오신 것을 환영합니다!",
-            description="이 채널에서 `/재생`, `/입장`, `/퇴장` 등의 음악 명령어를 입력해주세요.\n"
-                        "음성이 있는 채널에 들어가신 후 `/재생 [노래 제목]`을 입력하면 봇이 자동으로 접속하여 노래를 틀어드립니다!",
-            color=discord.Color.purple()
-        )
-        msg = await new_channel.send(embed=embed)
+    # 1. '🎵 음악' 카테고리 확인 및 생성
+    category = discord.utils.get(guild.categories, name="🎵 음악")
+    if not category:
         try:
-            await msg.pin()
+            category = await guild.create_category("🎵 음악")
+            print(f"[카테고리 생성] {guild.name} 서버에 '🎵 음악' 카테고리 생성 완료")
+        except Exception as e:
+            print(f"[경고] 카테고리 생성 실패: {e}")
+
+    # 2. 음악 전용 텍스트 채널 확인 및 생성 (#음악-명령어)
+    text_channel = None
+    if category:
+        text_channel = discord.utils.get(category.text_channels, name="음악-명령어")
+    if not text_channel:
+        text_channel = discord.utils.get(guild.text_channels, name="음악-명령어")
+
+    if not text_channel:
+        try:
+            text_channel = await guild.create_text_channel(
+                "음악-명령어",
+                category=category,
+                topic="🎵 음악 관련 명령어만 사용할 수 있는 전용 채널입니다."
+            )
+            embed = discord.Embed(
+                title="🎵 음악 전용 채널에 오신 것을 환영합니다!",
+                description="이 채널에서 `/재생`, `/입장`, `/퇴장` 등의 음악 명령어를 입력해주세요.\n"
+                            "음성에 접속하신 후 `/재생 [노래 제목]`을 입력하면 봇이 자동으로 접속하여 노래를 재생해 드립니다!",
+                color=discord.Color.purple()
+            )
+            msg = await text_channel.send(embed=embed)
+            try:
+                await msg.pin()
+            except Exception:
+                pass
+            print(f"[채널 생성] {guild.name} 서버에 #음악-명령어 텍스트 채널 생성 완료")
+        except Exception as e:
+            print(f"[경고] 텍스트 채널 생성 실패: {e}")
+    elif category and text_channel.category != category:
+        # 기존 채널이 있을 경우 카테고리 안으로 이동
+        try:
+            await text_channel.edit(category=category)
         except Exception:
             pass
 
+    # 3. 음악 전용 음성 채널 확인 및 생성 (🔊 음악-듣기방)
+    voice_channel = None
+    if category:
+        voice_channel = discord.utils.get(category.voice_channels, name="🔊 음악-듣기방")
+    if not voice_channel:
+        voice_channel = discord.utils.get(guild.voice_channels, name="🔊 음악-듣기방")
+
+    if not voice_channel:
+        try:
+            voice_channel = await guild.create_voice_channel(
+                "🔊 음악-듣기방",
+                category=category
+            )
+            print(f"[음성 채널 생성] {guild.name} 서버에 🔊 음악-듣기방 음성 채널 생성 완료")
+        except Exception as e:
+            print(f"[경고] 음성 채널 생성 실패: {e}")
+    elif category and voice_channel.category != category:
+        try:
+            await voice_channel.edit(category=category)
+        except Exception:
+            pass
+
+    # 설정값 저장
+    if text_channel:
         if guild_id_str not in settings:
             settings[guild_id_str] = {}
-        settings[guild_id_str]["music_channel_id"] = new_channel.id
+        settings[guild_id_str]["music_channel_id"] = text_channel.id
         save_settings(settings)
-        print(f"[채널 자동 생성] {guild.name} 서버에 #음악-명령어 채널 생성 완료")
-        return new_channel
-    except Exception as e:
-        print(f"[경고] {guild.name} 서버 음악 채널 생성 실패: {e}")
-        return None
+
+    return text_channel
 
 def is_music_channel(interaction: discord.Interaction) -> bool:
-    """현재 명령어가 실행된 채널이 설정된 음악 채널인지 확인합니다."""
+    """현재 명령어가 실행된 채널이 음악 전용 채널인지 체크합니다."""
     settings = load_settings()
     guild_id_str = str(interaction.guild_id)
 
@@ -154,7 +192,6 @@ def is_music_channel(interaction: discord.Interaction) -> bool:
     return False
 
 def get_notice_channel(guild):
-    """서버별 공지 채널 탐색 (지정된 채널 -> '일반/general' -> 첫 번째 텍스트 채널)"""
     settings = load_settings()
     guild_id_str = str(guild.id)
     
@@ -174,7 +211,6 @@ def get_notice_channel(guild):
     return None
 
 async def send_update_notice_to_all_guilds():
-    """모든 연결된 서버에 버전 업데이트 공지를 자동 전송합니다."""
     sent_count = 0
     for guild in bot.guilds:
         target_channel = get_notice_channel(guild)
@@ -193,23 +229,26 @@ async def send_update_notice_to_all_guilds():
     return sent_count
 
 # ==========================================
-# 5. 로그인 & 자동 버전 체크 및 last_version.txt 자동 갱신
+# 5. 로그인 & 실시간 명령어 동기화 & 버전 체크
 # ==========================================
 @bot.event
 async def on_ready():
-    try:
-        synced = await bot.tree.sync()
-        print(f"✅ 슬래시 명령어 동기화 완료: {len(synced)}개 명령어 등록됨")
-    except Exception as e:
-        print(f"❌ 슬래시 명령어 동기화 실패: {e}")
-        
-    print(f'✅ {bot.user.name} 봇이 로그인되었습니다.')
+    print(f'✅ {bot.user.name} 봇이 성공적으로 로그인되었습니다.')
 
-    # 1. 모든 서버에 음악 전용 채널 체크 및 생성
+    # 1. 서버별 실시간 명령어 즉시 동기화 (배포 즉시 반영)
     for guild in bot.guilds:
-        await ensure_music_channel(guild)
+        try:
+            bot.tree.copy_global_to(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+            print(f"⚡ [{guild.name}] 서버에 {len(synced)}개 명령어 실시간 동기화 완료!")
+        except Exception as e:
+            print(f"❌ [{guild.name}] 서버 동기화 실패: {e}")
 
-    # 2. last_version.txt 읽기 및 버전 자동 변경 감지
+    # 2. 카테고리 및 음악 채널 자동 생성/확인
+    for guild in bot.guilds:
+        await ensure_music_category_and_channels(guild)
+
+    # 3. 버전 비교 및 자동 공지/갱신
     last_version = ""
     if os.path.exists(VERSION_FILE):
         try:
@@ -218,9 +257,8 @@ async def on_ready():
         except Exception as e:
             print(f"[경고] 버전 파일 읽기 실패: {e}")
 
-    # 버전에 차이가 있거나 파일이 없는 경우 자동으로 공지 발송 및 last_version.txt 자동 갱신
     if last_version != BOT_VERSION:
-        print(f"📢 버전 변경 감지 (기존: '{last_version}' ➔ 신규: '{BOT_VERSION}'): 자동 업데이트 공지를 전송합니다.")
+        print(f"📢 버전 변경 감지 (기존: '{last_version}' ➔ 신규: '{BOT_VERSION}'): 즉시 업데이트 공지를 전송합니다.")
         await send_update_notice_to_all_guilds()
         
         try:
@@ -232,9 +270,9 @@ async def on_ready():
 
 @bot.event
 async def on_guild_join(guild):
-    """새 서버에 초대되면 음악 채널을 자동 생성합니다."""
+    """새 서버 초대 시 카테고리 및 채널 자동 설정"""
     print(f"🎉 새 서버 입장: {guild.name}")
-    await ensure_music_channel(guild)
+    await ensure_music_category_and_channels(guild)
 
 # ==========================================
 # 6. 서버 설정 명령어 (/공지채널설정, /음악채널설정)
@@ -276,12 +314,12 @@ async def slash_set_music_channel(interaction: discord.Interaction, channel: dis
     )
 
 # ==========================================
-# 7. 음악 기능 명령어
+# 7. 음악 기능 명령어 (자동 접속 및 채널 제한 적용)
 # ==========================================
 @bot.tree.command(name="입장", description="봇을 현재 접속 중인 음성 채널에 입장시킵니다.")
 async def slash_join(interaction: discord.Interaction):
     if not is_music_channel(interaction):
-        m_chan = await ensure_music_channel(interaction.guild)
+        m_chan = await ensure_music_category_and_channels(interaction.guild)
         chan_mention = m_chan.mention if m_chan else "`#음악-명령어`"
         await interaction.response.send_message(f"⚠️ 음악 관련 명령어는 {chan_mention} 채널에서만 사용할 수 있습니다!", ephemeral=True)
         return
@@ -299,7 +337,7 @@ async def slash_join(interaction: discord.Interaction):
 @bot.tree.command(name="퇴장", description="봇을 음성 채널에서 퇴장시킵니다.")
 async def slash_leave(interaction: discord.Interaction):
     if not is_music_channel(interaction):
-        m_chan = await ensure_music_channel(interaction.guild)
+        m_chan = await ensure_music_category_and_channels(interaction.guild)
         chan_mention = m_chan.mention if m_chan else "`#음악-명령어`"
         await interaction.response.send_message(f"⚠️ 음악 관련 명령어는 {chan_mention} 채널에서만 사용할 수 있습니다!", ephemeral=True)
         return
@@ -314,7 +352,7 @@ async def slash_leave(interaction: discord.Interaction):
 @app_commands.describe(search="재생할 노래 제목 또는 유튜브 링크")
 async def slash_play(interaction: discord.Interaction, search: str):
     if not is_music_channel(interaction):
-        m_chan = await ensure_music_channel(interaction.guild)
+        m_chan = await ensure_music_category_and_channels(interaction.guild)
         chan_mention = m_chan.mention if m_chan else "`#음악-명령어`"
         await interaction.response.send_message(f"⚠️ 음악 명령어는 {chan_mention} 채널에서만 사용할 수 있습니다!", ephemeral=True)
         return
@@ -359,7 +397,7 @@ async def slash_play(interaction: discord.Interaction, search: str):
         await interaction.followup.send(f"❌ 음악 재생 중 오류 발생: {e}")
 
 # ==========================================
-# 8. 도움말 및 일반/역할 명령어
+# 8. 도움말 및 기타 관리 명령어
 # ==========================================
 @bot.tree.command(name="도움말", description="봇의 전체 명령어와 사용법을 확인합니다.")
 async def slash_help(interaction: discord.Interaction):
