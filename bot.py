@@ -1,9 +1,7 @@
 import discord
-from discord import app_commands
 from discord.ext import commands, tasks
 import asyncio
 import os
-import json
 from dotenv import load_dotenv
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -20,9 +18,6 @@ if os.path.exists(env_path):
 else:
     load_dotenv()
 
-# ==========================================
-# 1. 봇 토큰 읽기
-# ==========================================
 def load_bot_token():
     for env_name in ["DISCORD_BOT_TOKEN", "BOT_TOKEN", "TOKEN", "DISCORD_TOKEN"]:
         env_token = os.getenv(env_name)
@@ -43,17 +38,8 @@ def load_bot_token():
 
 DISCORD_BOT_TOKEN = load_bot_token()
 
-BOT_VERSION = "v3.3.0"
-UPDATE_NOTES = (
-    "• 파일 변경 실시간 자동 감지(Watchdog) 시스템이 탑재되었습니다.\n"
-    "• 명령어를 입력하지 않아도 Git Push 시 봇이 스스로 최신 코드를 핫 리로드합니다."
-)
-
-VERSION_FILE = "last_version.txt"
-SETTINGS_FILE = "server_settings.json"
-
 # ==========================================
-# 2. 봇 초기화
+# 1. 봇 초기화 및 자동 감지 설정
 # ==========================================
 intents = discord.Intents.default()
 intents.message_content = True
@@ -61,12 +47,9 @@ intents.members = True
 intents.reactions = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
-
-# 핫 리로드 큐 관리
 reload_queue = set()
 
 class CogChangeHandler(FileSystemEventHandler):
-    """cogs 폴더 내 파일 변경 감지 이벤트 핸들러"""
     def on_modified(self, event):
         if not event.is_directory and event.src_path.endswith(".py"):
             filename = os.path.basename(event.src_path)
@@ -86,7 +69,6 @@ async def reload_cog_module(extension_name):
 
 @tasks.loop(seconds=2)
 async def auto_reload_task():
-    """감지된 수정 파일을 2초 간격으로 자동 재로드"""
     if reload_queue:
         targets = list(reload_queue)
         reload_queue.clear()
@@ -98,7 +80,6 @@ async def auto_reload_task():
         except Exception as e:
             print(f"❌ 동기화 실패: {e}")
 
-# Cogs 모듈 자동 동적 로드
 async def load_extensions():
     cogs_dir = os.path.join(base_dir, "cogs")
     if os.path.exists(cogs_dir):
@@ -113,9 +94,8 @@ async def load_extensions():
 
 @bot.event
 async def on_ready():
-    print(f'✅ {bot.user.name} 봇이 성공적으로 가동되었습니다. ({BOT_VERSION})')
+    print(f'✅ {bot.user.name} 봇이 성공적으로 가동되었습니다.')
 
-    # 중복 명령어 초기화 및 단일 전역 동기화
     for guild in bot.guilds:
         try:
             bot.tree.clear_commands(guild=guild)
@@ -129,7 +109,6 @@ async def on_ready():
     except Exception as e:
         print(f"❌ 전역 동기화 실패: {e}")
 
-    # 파일 변경 자동 감지 태스크 실행
     if not auto_reload_task.is_running():
         auto_reload_task.start()
 
