@@ -5,36 +5,18 @@ import yt_dlp as ytdl
 import asyncio
 import os
 import json
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ==========================================
-# 0. Render Web Service 포트 바인딩 우회 서버
-# ==========================================
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html; charset=utf-8')
-        self.end_headers()
-        self.wfile.write(b"Bot is running alive!")
-
-    def log_message(self, format, *args):
-        # 헬스체크 로그 출력을 지워 터미널을 깨끗하게 유지합니다.
-        return
-
-def run_health_check_server():
-    port = int(os.getenv("PORT", 10000))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    print(f"🌐 Render 포트 바인딩용 헬스체크 웹서버 실행 중 (Port: {port})")
-    server.serve_forever()
-
-# 별도 백그라운드 스레드로 헬스체크 서버 가동
-threading.Thread(target=run_health_check_server, daemon=True).start()
-
-# ==========================================
-# 1. 봇 토큰 읽기 (절대 경로 탐색 적용)
+# 1. 봇 토큰 읽기 (환경 변수 최우선 탐색)
 # ==========================================
 def load_bot_token():
+    # 1. 디스호스트/서버 환경 변수 최우선 확인 (가장 안전함)
+    env_token = os.getenv("DISCORD_BOT_TOKEN")
+    if env_token:
+        print("🔑 환경변수(DISCORD_BOT_TOKEN)에서 토큰을 성공적으로 불러왔습니다.")
+        return env_token
+
+    # 2. 로컬 테스트용 토큰 파일 탐색 (fallback)
     base_dir = os.path.dirname(os.path.abspath(__file__))
     token_path = os.path.join(base_dir, "Bot_Token")
 
@@ -44,17 +26,12 @@ def load_bot_token():
                 with open(path, "r", encoding="utf-8") as f:
                     token = f.read().strip()
                     if token:
-                        print(f"🔑 '{os.path.basename(path)}' 파일에서 토큰을 불러왔습니다.")
+                        print(f"🔑 로컬 '{os.path.basename(path)}' 파일에서 토큰을 불러왔습니다.")
                         return token
             except Exception as e:
-                print(f"[경고] 토큰 파일 읽기 실패: {e}")
+                print(f"[경고] 로컬 토큰 파일 읽기 실패: {e}")
 
-    env_token = os.getenv("DISCORD_BOT_TOKEN")
-    if env_token:
-        print("🔑 환경변수(DISCORD_BOT_TOKEN)에서 토큰을 불러왔습니다.")
-        return env_token
-
-    print("❌ 경고: 토큰을 찾을 수 없습니다!")
+    print("❌ 경고: 디스코드 봇 토큰을 찾을 수 없습니다! 디스호스트 환경 변수를 확인하세요.")
     return ""
 
 DISCORD_BOT_TOKEN = load_bot_token()
@@ -62,11 +39,10 @@ DISCORD_BOT_TOKEN = load_bot_token()
 # ==========================================
 # 2. 봇 버전 및 서버별 설정 파일 관리
 # ==========================================
-BOT_VERSION = "v1.7.0"
+BOT_VERSION = "v2.1.0"
 UPDATE_NOTES = (
-    "• `🎵 음악` 전용 카테고리가 자동으로 생성됩니다.\n"
-    "• 카테고리 내부에 `＃음악-명령어` (채팅)와 `🔊 음악-듣기방` (음성) 채널이 세트로 자동 구축됩니다.\n"
-    "• 배포 즉시 디스코드에 슬래시 명령어가 실시간으로 반영되도록 동기화 성능이 개선되었습니다."
+    "• `🎵 음악` 카테고리 및 `＃음악-명령어`, `🔊 음악-듣기방` 자동 구축 시스템이 유지됩니다.\n"
+    "• 배포 즉시 디스코드 슬래시 명령어 실시간 동기화가 적용됩니다."
 )
 
 VERSION_FILE = "last_version.txt"
@@ -258,7 +234,7 @@ async def send_update_notice_to_all_guilds():
 async def on_ready():
     print(f'✅ {bot.user.name} 봇이 성공적으로 로그인되었습니다.')
 
-    # 1. 서버별 실시간 명령어 즉시 동기화 (배포 즉시 반영)
+    # 1. 서버별 실시간 명령어 즉시 동기화
     for guild in bot.guilds:
         try:
             bot.tree.copy_global_to(guild=guild)
@@ -293,7 +269,6 @@ async def on_ready():
 
 @bot.event
 async def on_guild_join(guild):
-    """새 서버 초대 시 카테고리 및 채널 자동 설정"""
     print(f"🎉 새 서버 입장: {guild.name}")
     await ensure_music_category_and_channels(guild)
 
@@ -337,7 +312,7 @@ async def slash_set_music_channel(interaction: discord.Interaction, channel: dis
     )
 
 # ==========================================
-# 7. 음악 기능 명령어 (자동 접속 및 채널 제한 적용)
+# 7. 음악 기능 명령어
 # ==========================================
 @bot.tree.command(name="입장", description="봇을 현재 접속 중인 음성 채널에 입장시킵니다.")
 async def slash_join(interaction: discord.Interaction):
