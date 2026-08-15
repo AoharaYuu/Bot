@@ -6,9 +6,8 @@ import json
 
 BOT_VERSION = "v3.5.0"
 UPDATE_NOTES = (
-    "• 전체 기존 기능(음악 채널 자동 생성, 역할 관리, 설정 유지)이 완전 복원되었습니다.\n"
-    "• 업데이트 로그 및 관리자 기능이 `cogs/admin.py` 모듈로 통합되었습니다.\n"
-    "• 파일 수정 시 봇 무중단 자동 핫 리로드(Watchdog)가 정상 가동됩니다."
+    "• `/업데이트공지` 명령어가 전송된 **해당 서버**에만 맞춤 공지가 전달되도록 개편되었습니다.\n"
+    "• 음악 전용 채널 자동 구축 및 반응형 역할 관리 기능이 정상 동작합니다.\n"
 )
 
 VERSION_FILE = "last_version.txt"
@@ -35,45 +34,48 @@ class AdminCog(commands.Cog):
         self.bot = bot
 
     def get_notice_channel(self, guild):
+        """특정 서버 내에서 공지를 전송할 적절한 텍스트 채널을 찾습니다."""
         settings = load_settings()
         guild_id_str = str(guild.id)
         
+        # 1. /공지채널설정 으로 지정된 채널 확인
         if guild_id_str in settings and "notice_channel_id" in settings[guild_id_str]:
             channel_id = settings[guild_id_str]["notice_channel_id"]
             channel = guild.get_channel(channel_id)
             if channel and channel.permissions_for(guild.me).send_messages:
                 return channel
 
+        # 2. '일반' 또는 'general' 이름이 포함된 채널 탐색
         for channel in guild.text_channels:
             if '일반' in channel.name.lower() or 'general' in channel.name.lower():
                 if channel.permissions_for(guild.me).send_messages:
                     return channel
+
+        # 3. 메시지 전송 권한이 있는 첫 번째 텍스트 채널 선택
         for channel in guild.text_channels:
             if channel.permissions_for(guild.me).send_messages:
                 return channel
         return None
 
-    async def send_update_notice_to_all_guilds(self):
-        sent_count = 0
-        for guild in self.bot.guilds:
-            target_channel = self.get_notice_channel(guild)
-            if target_channel:
-                try:
-                    embed = discord.Embed(
-                        title=f"🚀 봇 업데이트 안내 ({BOT_VERSION})",
-                        description=f"**[ 주요 변경 사항 ]**\n{UPDATE_NOTES}",
-                        color=discord.Color.blue()
-                    )
-                    await target_channel.send(embed=embed)
-                    print(f"[업데이트 공지 전송 성공] 서버: {guild.name} ➔ 채널: #{target_channel.name}")
-                    sent_count += 1
-                except Exception as e:
-                    print(f"[경고] {guild.name} 서버 공지 전송 실패: {e}")
-        return sent_count
+    async def send_update_notice_to_guild(self, guild):
+        """지정한 단일 서버(Guild)에만 업데이트 공지를 발송합니다."""
+        target_channel = self.get_notice_channel(guild)
+        if target_channel:
+            try:
+                embed = discord.Embed(
+                    title=f"🚀 봇 업데이트 안내 ({BOT_VERSION})",
+                    description=f"**[ 주요 변경 사항 ]**\n{UPDATE_NOTES}",
+                    color=discord.Color.blue()
+                )
+                await target_channel.send(embed=embed)
+                print(f"[업데이트 공지 전송 성공] 서버: {guild.name} ➔ 채널: #{target_channel.name}")
+                return target_channel
+            except Exception as e:
+                print(f"[경고] {guild.name} 서버 공지 전송 실패: {e}")
+        return None
 
     @commands.Cog.listener()
     async def on_ready(self):
-        # 버전 비교 및 자동 공지
         last_version = ""
         if os.path.exists(VERSION_FILE):
             try:
@@ -84,7 +86,6 @@ class AdminCog(commands.Cog):
 
         if last_version != BOT_VERSION:
             print(f"📢 버전 변경 감지 (기존: '{last_version}' ➔ 신규: '{BOT_VERSION}')")
-            await self.send_update_notice_to_all_guilds()
             try:
                 with open(VERSION_FILE, "w", encoding="utf-8") as f:
                     f.write(BOT_VERSION)
@@ -102,7 +103,8 @@ class AdminCog(commands.Cog):
         embed.add_field(
             name="📢 서버 설정 & 공지",
             value="• `/공지채널설정 [채널]` : [관리자] 업데이트 공지 채널을 변경합니다.\n"
-                  "• `/음악채널설정 [채널]` : [관리자] 음악 전용 채널을 직접 변경합니다.",
+                  "• `/음악채널설정 [채널]` : [관리자] 음악 전용 채널을 직접 변경합니다.\n"
+                  "• `/업데이트공지` : [관리자] 이 서버에 패치노트를 수동으로 전송합니다.",
             inline=False
         )
         embed.add_field(
@@ -155,12 +157,24 @@ class AdminCog(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(name="업데이트공지", description="[관리자] 설정된 최신 패치노트를 지정 채널에 전송합니다.")
+    @app_commands.command(name="업데이트공지", description="[관리자] 이 서버의 지정 공지 채널에 패치노트를 전송합니다.")
     @app_commands.checks.has_permissions(administrator=True)
     async def slash_update_notice(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        sent_count = await self.send_update_notice_to_all_guilds()
-        await interaction.followup.send(f"✅ 최신 패치노트({BOT_VERSION})를 총 **{sent_count}개 서버**에 발송했습니다!")
+        
+        # 명령어가 호출된 해당 서버에만 발송
+        target_channel = await self.send_update_notice_to_guild(interaction.guild)
+        
+        if target_channel:
+            await interaction.followup.send(
+                f"✅ **{target_channel.mention}** 채널에 최신 패치노트({BOT_VERSION})를 성공적으로 발송했습니다!",
+                ephemeral=True
+            )
+        else:
+            await interaction.followup.send(
+                "❌ 메시지를 전송할 공지 채널을 찾을 수 없거나 권한이 부족합니다. `/공지채널설정`을 먼저 확인해 주세요.",
+                ephemeral=True
+            )
 
     @app_commands.command(name="안내메시지", description="[관리자] 지정한 채널에 역할 안내용 메시지를 생성합니다.")
     @app_commands.describe(channel="메시지를 보낼 채널 선택", title="메시지 제목", content="안내 내용 설명")
