@@ -1,0 +1,16 @@
+# 보안 및 토큰 파일
+.env
+Bot_Token
+Bot_Token.txt
+
+# 설정 및 서버 데이터 파일
+server_settings.json
+last_version.txt
+
+# 파이썬 캐시 및 가상환경
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
