@@ -7,14 +7,15 @@ import os
 import json
 
 # ==========================================
-# 1. 봇 토큰 읽기 (환경 변수 최우선 탐색)
+# 1. 봇 토큰 읽기 (다양한 환경 변수명 지원)
 # ==========================================
 def load_bot_token():
-    # 1. 디스호스트/서버 환경 변수 최우선 확인 (가장 안전함)
-    env_token = os.getenv("DISCORD_BOT_TOKEN")
-    if env_token:
-        print("🔑 환경변수(DISCORD_BOT_TOKEN)에서 토큰을 성공적으로 불러왔습니다.")
-        return env_token
+    # 1. 디스호스트/서버 환경 변수 다중 탐색
+    for env_name in ["DISCORD_BOT_TOKEN", "BOT_TOKEN", "TOKEN"]:
+        env_token = os.getenv(env_name)
+        if env_token:
+            print(f"🔑 환경변수({env_name})에서 토큰을 성공적으로 불러왔습니다.")
+            return env_token
 
     # 2. 로컬 테스트용 토큰 파일 탐색 (fallback)
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -39,10 +40,10 @@ DISCORD_BOT_TOKEN = load_bot_token()
 # ==========================================
 # 2. 봇 버전 및 서버별 설정 파일 관리
 # ==========================================
-BOT_VERSION = "v2.1.0"
+BOT_VERSION = "v2.3.0"
 UPDATE_NOTES = (
     "• `🎵 음악` 카테고리 및 `＃음악-명령어`, `🔊 음악-듣기방` 자동 구축 시스템이 유지됩니다.\n"
-    "• 배포 즉시 디스코드 슬래시 명령어 실시간 동기화가 적용됩니다."
+    "• 이번 버전 이후 배포 즉시 디스코드 슬래시 명령어 실시간 동기화가 적용됩니다."
 )
 
 VERSION_FILE = "last_version.txt"
