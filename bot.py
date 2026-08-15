@@ -6,28 +6,32 @@ import asyncio
 import os
 
 # ==========================================
-# 1. 봇 토큰 읽기 (Bot_Token 파일 우선 -> 환경변수)
+# 1. 봇 토큰 읽기 (절대 경로 탐색 적용)
 # ==========================================
 def load_bot_token():
-    # 1. Bot_Token 텍스트 파일 확인
-    token_filename = "Bot_Token"
-    if os.path.exists(token_filename):
-        try:
-            with open(token_filename, "r", encoding="utf-8") as f:
-                token = f.read().strip()
-                if token:
-                    print(f"🔑 '{token_filename}' 파일에서 토큰을 성공적으로 불러왔습니다.")
-                    return token
-        except Exception as e:
-            print(f"[경고] 토큰 파일 읽기 실패: {e}")
+    # bot.py 파일이 있는 폴더의 절대 경로 계산
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    token_path = os.path.join(base_dir, "Bot_Token")
 
-    # 2. Koyeb 환경변수 확인 (DISCORD_BOT_TOKEN)
+    # 1. Bot_Token 파일 확인 (확장자 없는 경우 및 .txt인 경우 모두 체크)
+    for path in [token_path, f"{token_path}.txt"]:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    token = f.read().strip()
+                    if token:
+                        print(f"🔑 '{os.path.basename(path)}' 파일에서 토큰을 성공적으로 불러왔습니다.")
+                        return token
+            except Exception as e:
+                print(f"[경고] 토큰 파일 읽기 실패: {e}")
+
+    # 2. Koyeb 환경변수 확인
     env_token = os.getenv("DISCORD_BOT_TOKEN")
     if env_token:
         print("🔑 Koyeb 환경변수(DISCORD_BOT_TOKEN)에서 토큰을 불러왔습니다.")
         return env_token
 
-    print("❌ 경고: 토큰을 찾을 수 없습니다! Bot_Token 파일 또는 환경변수를 확인해 주세요.")
+    print("❌ 경고: 토큰을 찾을 수 없습니다! 파일명이나 위치를 확인해 주세요.")
     return ""
 
 DISCORD_BOT_TOKEN = load_bot_token()
