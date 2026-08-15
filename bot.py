@@ -5,34 +5,46 @@ import yt_dlp as ytdl
 import asyncio
 import os
 import json
+from dotenv import load_dotenv
+
+# 디스호스트 실행 경로 기준 절대 경로 설정
+base_dir = os.path.dirname(os.path.abspath(__file__))
+env_path = os.path.join(base_dir, ".env")
+
+# .env 파일 강제 지정 로드
+if os.path.exists(env_path):
+    load_dotenv(dotenv_path=env_path)
+    print(f"📄 절대 경로에서 .env 파일을 성공적으로 로드했습니다: {env_path}")
+else:
+    load_dotenv()
+    print("⚠️ .env 파일을 발견하지 못해 시스템 환경 변수만 탐색합니다.")
 
 # ==========================================
-# 1. 봇 토큰 읽기 (다양한 환경 변수명 지원)
+# 1. 봇 토큰 읽기 (절대 경로 및 다중 경로 체크)
 # ==========================================
 def load_bot_token():
-    # 1. 디스호스트/서버 환경 변수 다중 탐색
-    for env_name in ["DISCORD_BOT_TOKEN", "BOT_TOKEN", "TOKEN"]:
+    # 1. 환경 변수 및 .env 탐색
+    for env_name in ["DISCORD_BOT_TOKEN", "BOT_TOKEN", "TOKEN", "DISCORD_TOKEN"]:
         env_token = os.getenv(env_name)
         if env_token:
-            print(f"🔑 환경변수({env_name})에서 토큰을 성공적으로 불러왔습니다.")
+            print(f"🔑 환경변수/env({env_name})에서 토큰을 성공적으로 불러왔습니다.")
             return env_token
 
-    # 2. 로컬 테스트용 토큰 파일 탐색 (fallback)
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    token_path = os.path.join(base_dir, "Bot_Token")
-
-    for path in [token_path, f"{token_path}.txt"]:
+    # 2. 로컬/디스호스트 파일 직접 탐색
+    for filename in ["Bot_Token", "Bot_Token.txt", "token.txt"]:
+        path = os.path.join(base_dir, filename)
         if os.path.exists(path):
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     token = f.read().strip()
                     if token:
-                        print(f"🔑 로컬 '{os.path.basename(path)}' 파일에서 토큰을 불러왔습니다.")
+                        print(f"🔑 파일('{filename}')에서 토큰을 성공적으로 불러왔습니다.")
                         return token
             except Exception as e:
-                print(f"[경고] 로컬 토큰 파일 읽기 실패: {e}")
+                print(f"[경고] 토큰 파일 읽기 실패: {e}")
 
-    print("❌ 경고: 디스코드 봇 토큰을 찾을 수 없습니다! 디스호스트 환경 변수를 확인하세요.")
+    print(f"❌ [오류 탐색] 현재 디렉토리 파일 목록: {os.listdir(base_dir)}")
+    print("❌ 경고: 디스코드 봇 토큰을 찾을 수 없습니다!")
     return ""
 
 DISCORD_BOT_TOKEN = load_bot_token()
