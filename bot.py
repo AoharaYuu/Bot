@@ -5,6 +5,31 @@ import yt_dlp as ytdl
 import asyncio
 import os
 import json
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+# ==========================================
+# 0. Render Web Service 포트 바인딩 우회 서버
+# ==========================================
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(b"Bot is running alive!")
+
+    def log_message(self, format, *args):
+        # 헬스체크 로그 출력을 지워 터미널을 깨끗하게 유지합니다.
+        return
+
+def run_health_check_server():
+    port = int(os.getenv("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    print(f"🌐 Render 포트 바인딩용 헬스체크 웹서버 실행 중 (Port: {port})")
+    server.serve_forever()
+
+# 별도 백그라운드 스레드로 헬스체크 서버 가동
+threading.Thread(target=run_health_check_server, daemon=True).start()
 
 # ==========================================
 # 1. 봇 토큰 읽기 (절대 경로 탐색 적용)
@@ -37,7 +62,6 @@ DISCORD_BOT_TOKEN = load_bot_token()
 # ==========================================
 # 2. 봇 버전 및 서버별 설정 파일 관리
 # ==========================================
-# 💡 버전 0.2.0 상향 적용
 BOT_VERSION = "v1.7.0"
 UPDATE_NOTES = (
     "• `🎵 음악` 전용 카테고리가 자동으로 생성됩니다.\n"
@@ -140,7 +164,6 @@ async def ensure_music_category_and_channels(guild):
         except Exception as e:
             print(f"[경고] 텍스트 채널 생성 실패: {e}")
     elif category and text_channel.category != category:
-        # 기존 채널이 있을 경우 카테고리 안으로 이동
         try:
             await text_channel.edit(category=category)
         except Exception:
