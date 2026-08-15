@@ -7,43 +7,43 @@ import os
 import json
 from dotenv import load_dotenv
 
-# 디스호스트 실행 경로 기준 절대 경로 설정
+# ==========================================
+# 0. 디스호스트/로컬 절대 경로 및 .env 설정
+# ==========================================
 base_dir = os.path.dirname(os.path.abspath(__file__))
 env_path = os.path.join(base_dir, ".env")
 
-# .env 파일 강제 지정 로드
 if os.path.exists(env_path):
     load_dotenv(dotenv_path=env_path)
-    print(f"📄 절대 경로에서 .env 파일을 성공적으로 로드했습니다: {env_path}")
+    print(f"📄 .env 파일 성공적으로 로드 완료: {env_path}")
 else:
     load_dotenv()
-    print("⚠️ .env 파일을 발견하지 못해 시스템 환경 변수만 탐색합니다.")
 
 # ==========================================
-# 1. 봇 토큰 읽기 (절대 경로 및 다중 경로 체크)
+# 1. 봇 토큰 읽기 (공백 및 따옴표 완전 정제)
 # ==========================================
 def load_bot_token():
     # 1. 환경 변수 및 .env 탐색
     for env_name in ["DISCORD_BOT_TOKEN", "BOT_TOKEN", "TOKEN", "DISCORD_TOKEN"]:
         env_token = os.getenv(env_name)
         if env_token:
-            print(f"🔑 환경변수/env({env_name})에서 토큰을 성공적으로 불러왔습니다.")
-            return env_token
+            clean_token = env_token.strip().strip("'").strip('"')
+            print(f"🔑 환경변수({env_name})에서 토큰을 로드했습니다.")
+            return clean_token
 
-    # 2. 로컬/디스호스트 파일 직접 탐색
+    # 2. 로컬 토큰 파일 탐색 (fallback)
     for filename in ["Bot_Token", "Bot_Token.txt", "token.txt"]:
         path = os.path.join(base_dir, filename)
         if os.path.exists(path):
             try:
                 with open(path, "r", encoding="utf-8") as f:
-                    token = f.read().strip()
+                    token = f.read().strip().strip("'").strip('"')
                     if token:
-                        print(f"🔑 파일('{filename}')에서 토큰을 성공적으로 불러왔습니다.")
+                        print(f"🔑 로컬 파일('{filename}')에서 토큰을 로드했습니다.")
                         return token
             except Exception as e:
                 print(f"[경고] 토큰 파일 읽기 실패: {e}")
 
-    print(f"❌ [오류 탐색] 현재 디렉토리 파일 목록: {os.listdir(base_dir)}")
     print("❌ 경고: 디스코드 봇 토큰을 찾을 수 없습니다!")
     return ""
 
@@ -52,10 +52,11 @@ DISCORD_BOT_TOKEN = load_bot_token()
 # ==========================================
 # 2. 봇 버전 및 서버별 설정 파일 관리
 # ==========================================
-BOT_VERSION = "v2.3.0"
+BOT_VERSION = "v2.9.0"
 UPDATE_NOTES = (
-    "• `🎵 음악` 카테고리 및 `＃음악-명령어`, `🔊 음악-듣기방` 자동 구축 시스템이 유지됩니다.\n"
-    "• 이번 버전 이후 배포 즉시 디스코드 슬래시 명령어 실시간 동기화가 적용됩니다."
+    "• 슬래시 명령어 2개 중복 표시 버그가 완벽하게 해결되었습니다.\n"
+    "• 서버별 중복 명령어를 자동 초기화하고 단일 전역 동기화 체계로 개편했습니다.\n"
+    "• `🎵 음악` 카테고리 및 전용 채널 자동 구축 기능이 그대로 유지됩니다."
 )
 
 VERSION_FILE = "last_version.txt"
@@ -115,7 +116,6 @@ async def ensure_music_category_and_channels(guild):
     settings = load_settings()
     guild_id_str = str(guild.id)
 
-    # 1. '🎵 음악' 카테고리 확인 및 생성
     category = discord.utils.get(guild.categories, name="🎵 음악")
     if not category:
         try:
@@ -124,7 +124,6 @@ async def ensure_music_category_and_channels(guild):
         except Exception as e:
             print(f"[경고] 카테고리 생성 실패: {e}")
 
-    # 2. 음악 전용 텍스트 채널 확인 및 생성 (#음악-명령어)
     text_channel = None
     if category:
         text_channel = discord.utils.get(category.text_channels, name="음악-명령어")
@@ -158,7 +157,6 @@ async def ensure_music_category_and_channels(guild):
         except Exception:
             pass
 
-    # 3. 음악 전용 음성 채널 확인 및 생성 (🔊 음악-듣기방)
     voice_channel = None
     if category:
         voice_channel = discord.utils.get(category.voice_channels, name="🔊 음악-듣기방")
@@ -180,7 +178,6 @@ async def ensure_music_category_and_channels(guild):
         except Exception:
             pass
 
-    # 설정값 저장
     if text_channel:
         if guild_id_str not in settings:
             settings[guild_id_str] = {}
@@ -241,36 +238,43 @@ async def send_update_notice_to_all_guilds():
     return sent_count
 
 # ==========================================
-# 5. 로그인 & 실시간 명령어 동기화 & 버전 체크
+# 5. 로그인 & 명령어 중복 초기화 & 단일 전역 동기화
 # ==========================================
 @bot.event
 async def on_ready():
     print(f'✅ {bot.user.name} 봇이 성공적으로 로그인되었습니다.')
 
-    # 1. 서버별 실시간 명령어 즉시 동기화
+    # 1. 서버(Guild)별 잔여 중복 명령어 완전 삭제
     for guild in bot.guilds:
         try:
-            bot.tree.copy_global_to(guild=guild)
-            synced = await bot.tree.sync(guild=guild)
-            print(f"⚡ [{guild.name}] 서버에 {len(synced)}개 명령어 실시간 동기화 완료!")
+            bot.tree.clear_commands(guild=guild)
+            await bot.tree.sync(guild=guild)
+            print(f"🧹 [{guild.name}] 서버의 중복 개별 명령어를 정리했습니다.")
         except Exception as e:
-            print(f"❌ [{guild.name}] 서버 동기화 실패: {e}")
+            print(f"❌ [{guild.name}] 서버 중복 명령어 정리 실패: {e}")
 
-    # 2. 카테고리 및 음악 채널 자동 생성/확인
+    # 2. 전역(Global) 단일 명령어 동기화
+    try:
+        synced = await bot.tree.sync()
+        print(f"⚡ 전역 명령어 {len(synced)}개 단일 동기화 완료! (중복 제거 적용)")
+    except Exception as e:
+        print(f"❌ 전역 동기화 실패: {e}")
+
+    # 3. 카테고리 및 음악 채널 자동 생성/확인
     for guild in bot.guilds:
         await ensure_music_category_and_channels(guild)
 
-    # 3. 버전 비교 및 자동 공지/갱신
+    # 4. 버전 비교 및 자동 공지
     last_version = ""
     if os.path.exists(VERSION_FILE):
         try:
             with open(VERSION_FILE, "r", encoding="utf-8") as f:
                 last_version = f.read().strip()
         except Exception as e:
-            print(f"[경고] 버전 파일 읽기 실패: {e}")
+            pass
 
     if last_version != BOT_VERSION:
-        print(f"📢 버전 변경 감지 (기존: '{last_version}' ➔ 신규: '{BOT_VERSION}'): 즉시 업데이트 공지를 전송합니다.")
+        print(f"📢 버전 변경 감지 (기존: '{last_version}' ➔ 신규: '{BOT_VERSION}')")
         await send_update_notice_to_all_guilds()
         
         try:
