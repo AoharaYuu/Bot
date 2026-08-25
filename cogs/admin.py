@@ -4,25 +4,36 @@ from discord.ext import commands
 import os
 import json
 
-BOT_VERSION = "v3.5.0"
+BOT_VERSION = "v3.5.1"
 UPDATE_NOTES = (
-    "• `/업데이트공지` 명령어가 전송된 **해당 서버**에만 맞춤 공지가 전달되도록 개편되었습니다.\n"
-    "• 음악 전용 채널 자동 구축 및 반응형 역할 관리 기능이 정상 동작합니다.\n"
+    "• 전반적인 코드 구조 최적화 및 디스크 I/O 성능 향상이 이뤄졌습니다.\n"
+    "• `/업데이트공지` 시 명령어를 실행한 **해당 서버**의 공지 채널로만 메시지가 전달됩니다.\n"
+    "• 무중단 자동 핫 리로드(mtime 감지)가 원활하게 구동됩니다."
 )
 
 VERSION_FILE = "last_version.txt"
 SETTINGS_FILE = "server_settings.json"
 
+_settings_cache = None
+
 def load_settings():
+    global _settings_cache
+    if _settings_cache is not None:
+        return _settings_cache
+
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                _settings_cache = json.load(f)
+                return _settings_cache
         except Exception as e:
             print(f"[경고] 설정 파일 읽기 실패: {e}")
-    return {}
+    _settings_cache = {}
+    return _settings_cache
 
 def save_settings(settings):
+    global _settings_cache
+    _settings_cache = settings
     try:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(settings, f, ensure_ascii=False, indent=4)
@@ -34,31 +45,26 @@ class AdminCog(commands.Cog):
         self.bot = bot
 
     def get_notice_channel(self, guild):
-        """특정 서버 내에서 공지를 전송할 적절한 텍스트 채널을 찾습니다."""
         settings = load_settings()
         guild_id_str = str(guild.id)
         
-        # 1. /공지채널설정 으로 지정된 채널 확인
         if guild_id_str in settings and "notice_channel_id" in settings[guild_id_str]:
             channel_id = settings[guild_id_str]["notice_channel_id"]
             channel = guild.get_channel(channel_id)
             if channel and channel.permissions_for(guild.me).send_messages:
                 return channel
 
-        # 2. '일반' 또는 'general' 이름이 포함된 채널 탐색
         for channel in guild.text_channels:
             if '일반' in channel.name.lower() or 'general' in channel.name.lower():
                 if channel.permissions_for(guild.me).send_messages:
                     return channel
 
-        # 3. 메시지 전송 권한이 있는 첫 번째 텍스트 채널 선택
         for channel in guild.text_channels:
             if channel.permissions_for(guild.me).send_messages:
                 return channel
         return None
 
     async def send_update_notice_to_guild(self, guild):
-        """지정한 단일 서버(Guild)에만 업데이트 공지를 발송합니다."""
         target_channel = self.get_notice_channel(guild)
         if target_channel:
             try:
@@ -68,10 +74,10 @@ class AdminCog(commands.Cog):
                     color=discord.Color.blue()
                 )
                 await target_channel.send(embed=embed)
-                print(f"[업데이트 공지 전송 성공] 서버: {guild.name} ➔ 채널: #{target_channel.name}")
+                print(f"[공지 전송 성공] {guild.name} ➔ #{target_channel.name}")
                 return target_channel
             except Exception as e:
-                print(f"[경고] {guild.name} 서버 공지 전송 실패: {e}")
+                print(f"[경고] {guild.name} 공지 전송 실패: {e}")
         return None
 
     @commands.Cog.listener()
@@ -85,11 +91,11 @@ class AdminCog(commands.Cog):
                 pass
 
         if last_version != BOT_VERSION:
-            print(f"📢 버전 변경 감지 (기존: '{last_version}' ➔ 신규: '{BOT_VERSION}')")
+            print(f"📢 버전 변경 감지: '{last_version}' ➔ '{BOT_VERSION}'")
             try:
                 with open(VERSION_FILE, "w", encoding="utf-8") as f:
                     f.write(BOT_VERSION)
-                print(f"📝 '{VERSION_FILE}' 파일이 '{BOT_VERSION}' 버전으로 자동 갱신되었습니다.")
+                print(f"📝 '{VERSION_FILE}' 파일이 '{BOT_VERSION}' 버전으로 갱신되었습니다.")
             except Exception as e:
                 print(f"[경고] 버전 파일 갱신 실패: {e}")
 
@@ -102,15 +108,15 @@ class AdminCog(commands.Cog):
         )
         embed.add_field(
             name="📢 서버 설정 & 공지",
-            value="• `/공지채널설정 [채널]` : [관리자] 업데이트 공지 채널을 변경합니다.\n"
-                  "• `/음악채널설정 [채널]` : [관리자] 음악 전용 채널을 직접 변경합니다.\n"
-                  "• `/업데이트공지` : [관리자] 이 서버에 패치노트를 수동으로 전송합니다.",
+            value="• `/공지채널설정 [채널]` : [관리자] 업데이트 공지 채널 변경\n"
+                  "• `/음악채널설정 [채널]` : [관리자] 음악 전용 채널 지정\n"
+                  "• `/업데이트공지` : [관리자] 이 서버에 패치노트 수동 전송",
             inline=False
         )
         embed.add_field(
             name="🎵 음악 기능 (#음악-명령어 전용)",
-            value="• `/재생 [검색어/URL]` : 음성 채널에 자동 접속 후 노래 재생\n"
-                  "• `/입장` / `/퇴장` : 음성 채널 수동 입장 및 퇴장",
+            value="• `/재생 [검색어/URL]` : 음성 채널 자동 접속 후 재생\n"
+                  "• `/입장` / `/퇴장` : 음성 채널 수동 입장/퇴장",
             inline=False
         )
         embed.add_field(
@@ -135,7 +141,7 @@ class AdminCog(commands.Cog):
         save_settings(settings)
 
         await interaction.response.send_message(
-            f"✅ 이 서버의 공지 채널이 **{channel.mention}** (으)로 설정되었습니다!",
+            f"✅ 공지 채널이 **{channel.mention}** (으)로 설정되었습니다!",
             ephemeral=True
         )
 
@@ -153,7 +159,7 @@ class AdminCog(commands.Cog):
         save_settings(settings)
 
         await interaction.response.send_message(
-            f"🎵 이 서버의 음악 전용 채널이 **{channel.mention}** (으)로 변경되었습니다!",
+            f"🎵 음악 전용 채널이 **{channel.mention}** (으)로 변경되었습니다!",
             ephemeral=True
         )
 
@@ -161,18 +167,16 @@ class AdminCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def slash_update_notice(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        
-        # 명령어가 호출된 해당 서버에만 발송
         target_channel = await self.send_update_notice_to_guild(interaction.guild)
         
         if target_channel:
             await interaction.followup.send(
-                f"✅ **{target_channel.mention}** 채널에 최신 패치노트({BOT_VERSION})를 성공적으로 발송했습니다!",
+                f"✅ **{target_channel.mention}** 채널에 패치노트({BOT_VERSION})를 성공적으로 발송했습니다!",
                 ephemeral=True
             )
         else:
             await interaction.followup.send(
-                "❌ 메시지를 전송할 공지 채널을 찾을 수 없거나 권한이 부족합니다. `/공지채널설정`을 먼저 확인해 주세요.",
+                "❌ 공지 채널을 찾을 수 없거나 권한이 부족합니다. `/공지채널설정`을 확인해 주세요.",
                 ephemeral=True
             )
 
@@ -211,7 +215,7 @@ class AdminCog(commands.Cog):
             new_footer = mapping_str
         else:
             if mapping_str in current_footer:
-                await interaction.followup.send(f"⚠️ 이미 해당 역할이 연결되어 있습니다.")
+                await interaction.followup.send("⚠️ 이미 해당 역할이 연결되어 있습니다.")
                 return
             new_footer = f"{current_footer} {mapping_str}"
 

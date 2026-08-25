@@ -3,8 +3,6 @@ from discord.ext import commands, tasks
 import asyncio
 import os
 from dotenv import load_dotenv
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 
 # ==========================================
 # 0. 경로 및 .env 설정
@@ -39,7 +37,7 @@ def load_bot_token():
 DISCORD_BOT_TOKEN = load_bot_token()
 
 # ==========================================
-# 1. 봇 초기화 및 자동 감지 설정
+# 1. 봇 초기화 및 mtime 기반 파일 변경 추적
 # ==========================================
 intents = discord.Intents.default()
 intents.message_content = True
@@ -47,36 +45,52 @@ intents.members = True
 intents.reactions = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
-reload_queue = set()
-
-class CogChangeHandler(FileSystemEventHandler):
-    def on_modified(self, event):
-        if not event.is_directory and event.src_path.endswith(".py"):
-            filename = os.path.basename(event.src_path)
-            cog_name = f"cogs.{filename[:-3]}"
-            reload_queue.add(cog_name)
+cog_mtimes = {}
 
 async def reload_cog_module(extension_name):
     try:
         await bot.reload_extension(extension_name)
         print(f"🔄 [자동 핫 리로드 성공] {extension_name}")
+        return True
     except Exception:
         try:
             await bot.load_extension(extension_name)
             print(f"🧩 [자동 모듈 로드 성공] {extension_name}")
+            return True
         except Exception as e:
             print(f"❌ [자동 핫 리로드 실패] {extension_name}: {e}")
+            return False
 
-@tasks.loop(seconds=2)
+@tasks.loop(seconds=3)
 async def auto_reload_task():
-    if reload_queue:
-        targets = list(reload_queue)
-        reload_queue.clear()
-        for ext in targets:
-            await reload_cog_module(ext)
+    """cogs 폴더 내 파일 수정 시간(mtime) 최적화 감지"""
+    cogs_dir = os.path.join(base_dir, "cogs")
+    if not os.path.exists(cogs_dir):
+        return
+
+    has_changed = False
+    for filename in os.listdir(cogs_dir):
+        if filename.endswith(".py"):
+            file_path = os.path.join(cogs_dir, filename)
+            try:
+                current_mtime = os.path.getmtime(file_path)
+            except OSError:
+                continue
+
+            cog_name = f"cogs.{filename[:-3]}"
+
+            if cog_name not in cog_mtimes:
+                cog_mtimes[cog_name] = current_mtime
+            elif cog_mtimes[cog_name] != current_mtime:
+                cog_mtimes[cog_name] = current_mtime
+                print(f"🔍 파일 변경 감지: {filename}")
+                if await reload_cog_module(cog_name):
+                    has_changed = True
+
+    if has_changed:
         try:
             await bot.tree.sync()
-            print("⚡ 자동 핫 리로드 후 명령어 슬래시 트리 동기화 완료!")
+            print("⚡ 파일 변경 반영 후 명령어 트리 동기화 완료!")
         except Exception as e:
             print(f"❌ 동기화 실패: {e}")
 
@@ -86,7 +100,9 @@ async def load_extensions():
         for filename in os.listdir(cogs_dir):
             if filename.endswith(".py"):
                 extension_name = f"cogs.{filename[:-3]}"
+                file_path = os.path.join(cogs_dir, filename)
                 try:
+                    cog_mtimes[extension_name] = os.path.getmtime(file_path)
                     await bot.load_extension(extension_name)
                     print(f"🧩 모듈 로드 성공: {extension_name}")
                 except Exception as e:
@@ -94,7 +110,7 @@ async def load_extensions():
 
 @bot.event
 async def on_ready():
-    print(f'✅ {bot.user.name} 봇이 성공적으로 가동되었습니다.')
+    print(f'✅ {bot.user.name} 봇 가동 중')
 
     for guild in bot.guilds:
         try:
@@ -111,14 +127,7 @@ async def on_ready():
 
     if not auto_reload_task.is_running():
         auto_reload_task.start()
-
-    cogs_dir = os.path.join(base_dir, "cogs")
-    if os.path.exists(cogs_dir):
-        event_handler = CogChangeHandler()
-        observer = Observer()
-        observer.schedule(event_handler, path=cogs_dir, recursive=False)
-        observer.start()
-        print("👁️ cogs 폴더 자동 감지(Watchdog) 서비스가 가동되었습니다.")
+        print("👁️ mtime 기반 무중단 자동 감지 서비스 시작됨")
 
 async def main():
     async with bot:
