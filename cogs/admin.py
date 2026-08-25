@@ -6,9 +6,9 @@ import json
 
 BOT_VERSION = "v3.5.1"
 UPDATE_NOTES = (
-    "• 전반적인 코드 구조 최적화 및 디스크 I/O 성능 향상이 이뤄졌습니다.\n"
-    "• `/업데이트공지` 시 명령어를 실행한 **해당 서버**의 공지 채널로만 메시지가 전달됩니다.\n"
-    "• 무중단 자동 핫 리로드(mtime 감지)가 원활하게 구동됩니다."
+    "• 최적화 및 안정화 업데이트가 완료되었습니다.\n"
+    "• `/업데이트공지` 명령어 및 자동 버전 변경 공지 발송 기능이 정상 작동합니다.\n"
+    "• 무중단 자동 핫 리로드(mtime 감지) 시스템이 구동 중입니다."
 )
 
 VERSION_FILE = "last_version.txt"
@@ -26,8 +26,8 @@ def load_settings():
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
                 _settings_cache = json.load(f)
                 return _settings_cache
-        except Exception as e:
-            print(f"[경고] 설정 파일 읽기 실패: {e}")
+        except Exception:
+            pass
     _settings_cache = {}
     return _settings_cache
 
@@ -37,8 +37,8 @@ def save_settings(settings):
     try:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(settings, f, ensure_ascii=False, indent=4)
-    except Exception as e:
-        print(f"[경고] 설정 파일 저장 실패: {e}")
+    except Exception:
+        pass
 
 class AdminCog(commands.Cog):
     def __init__(self, bot):
@@ -82,6 +82,7 @@ class AdminCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
+        # 1. 이전 저장 버전 확인
         last_version = ""
         if os.path.exists(VERSION_FILE):
             try:
@@ -90,8 +91,12 @@ class AdminCog(commands.Cog):
             except Exception:
                 pass
 
+        # 2. 버전 변경 감지 시 자동 공지 발송 및 기록
         if last_version != BOT_VERSION:
-            print(f"📢 버전 변경 감지: '{last_version}' ➔ '{BOT_VERSION}'")
+            print(f"📢 버전 변경 감지: '{last_version}' ➔ '{BOT_VERSION}' (자동 공지를 발송합니다)")
+            for guild in self.bot.guilds:
+                await self.send_update_notice_to_guild(guild)
+
             try:
                 with open(VERSION_FILE, "w", encoding="utf-8") as f:
                     f.write(BOT_VERSION)
