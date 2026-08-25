@@ -4,7 +4,7 @@ from discord.ext import commands
 import os
 import json
 
-BOT_VERSION = "v3.5.2"
+BOT_VERSION = "v3.5.3"
 UPDATE_NOTES = (
     "• 전반적인 코드 구조 최적화 및 디스크 I/O 최소화가 지속 적용됩니다.\n"
     "• `/업데이트공지` 시 명령어를 실행한 **해당 서버**의 공지 채널로 메시지가 전달됩니다.\n"
