@@ -2,11 +2,10 @@ import discord
 from discord.ext import commands, tasks
 import asyncio
 import os
-import hashlib
 from dotenv import load_dotenv
 
 # ==========================================
-# 0. 경로 및 .env 설정
+# 0. 경로 및 .env 설정 (절대 경로 고정)
 # ==========================================
 base_dir = os.path.dirname(os.path.abspath(__file__))
 env_path = os.path.join(base_dir, ".env")
@@ -38,7 +37,7 @@ def load_bot_token():
 DISCORD_BOT_TOKEN = load_bot_token()
 
 # ==========================================
-# 1. 봇 초기화 및 Hash 기반 파일 변경 감지
+# 1. 봇 초기화 및 Cogs 무중단 감지
 # ==========================================
 intents = discord.Intents.default()
 intents.message_content = True
@@ -47,62 +46,49 @@ intents.reactions = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# 각 Cog 파일 내용의 MD5 해시값 저장
-cog_hashes = {}
-
-def get_file_hash(file_path):
-    """파일 내용의 MD5 해시를 계산하여 구함"""
-    try:
-        with open(file_path, "rb") as f:
-            return hashlib.md5(f.read()).hexdigest()
-    except Exception:
-        return None
-
 async def reload_cog_module(extension_name):
     try:
         await bot.reload_extension(extension_name)
-        print(f"🔄 [자동 핫 리로드 성공] {extension_name}")
+        print(f"🔄 [모듈 리로드 성공] {extension_name}")
         return True
     except Exception:
         try:
             await bot.load_extension(extension_name)
-            print(f"🧩 [자동 모듈 로드 성공] {extension_name}")
+            print(f"🧩 [모듈 로드 성공] {extension_name}")
             return True
         except Exception as e:
-            print(f"❌ [자동 핫 리로드 실패] {extension_name}: {e}")
+            print(f"❌ [모듈 로드 실패] {extension_name}: {e}")
             return False
 
 @tasks.loop(seconds=3)
 async def auto_reload_task():
-    """cogs 폴더 파일의 실제 내용(Hash) 변경 감지"""
+    """cogs 폴더 내 파일 변경 감지 루프"""
     cogs_dir = os.path.join(base_dir, "cogs")
     if not os.path.exists(cogs_dir):
         return
 
-    has_changed = False
-    for filename in os.listdir(cogs_dir):
-        if filename.endswith(".py"):
-            file_path = os.path.join(cogs_dir, filename)
-            current_hash = get_file_hash(file_path)
-            if not current_hash:
-                continue
+    py_files = [os.path.join(cogs_dir, f) for f in os.listdir(cogs_dir) if f.endswith(".py")]
+    if not py_files:
+        return
 
-            cog_name = f"cogs.{filename[:-3]}"
+    latest_mtime = max(os.path.getmtime(f) for f in py_files)
 
-            if cog_name not in cog_hashes:
-                cog_hashes[cog_name] = current_hash
-            elif cog_hashes[cog_name] != current_hash:
-                cog_hashes[cog_name] = current_hash
-                print(f"🔍 [파일 변경 감지] {filename} 해시값이 변경되었습니다.")
-                if await reload_cog_module(cog_name):
-                    has_changed = True
-
-    if has_changed:
-        try:
-            await bot.tree.sync()
-            print("⚡ [동기화 완료] 슬래시 명령어 트리 개편 적용!")
-        except Exception as e:
-            print(f"❌ 동기화 실패: {e}")
+    if hasattr(auto_reload_task, "last_mtime"):
+        if latest_mtime > auto_reload_task.last_mtime:
+            auto_reload_task.last_mtime = latest_mtime
+            print("🔍 [파일 변경 감지] Cogs 모듈을 재로드합니다.")
+            
+            for filename in os.listdir(cogs_dir):
+                if filename.endswith(".py"):
+                    await reload_cog_module(f"cogs.{filename[:-3]}")
+            
+            try:
+                await bot.tree.sync()
+                print("⚡ 슬래시 명령어 트리 동기화 완료!")
+            except Exception as e:
+                print(f"❌ 명령어 동기화 실패: {e}")
+    else:
+        auto_reload_task.last_mtime = latest_mtime
 
 async def load_extensions():
     cogs_dir = os.path.join(base_dir, "cogs")
@@ -110,9 +96,7 @@ async def load_extensions():
         for filename in os.listdir(cogs_dir):
             if filename.endswith(".py"):
                 extension_name = f"cogs.{filename[:-3]}"
-                file_path = os.path.join(cogs_dir, filename)
                 try:
-                    cog_hashes[extension_name] = get_file_hash(file_path)
                     await bot.load_extension(extension_name)
                     print(f"🧩 모듈 로드 성공: {extension_name}")
                 except Exception as e:
@@ -120,7 +104,7 @@ async def load_extensions():
 
 @bot.event
 async def on_ready():
-    print(f'✅ {bot.user.name} 봇 가동 중 (v3.5.2)')
+    print(f'✅ {bot.user.name} 봇 가동 중')
 
     for guild in bot.guilds:
         try:
@@ -137,7 +121,7 @@ async def on_ready():
 
     if not auto_reload_task.is_running():
         auto_reload_task.start()
-        print("👁️ 해시(Hash) 기반 무중단 자동 감지 서비스가 정상 가동되었습니다.")
+        print("👁️ 파일 변경 감지 서비스가 구동되었습니다.")
 
 async def main():
     async with bot:

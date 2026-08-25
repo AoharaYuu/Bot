@@ -4,15 +4,18 @@ from discord.ext import commands
 import os
 import json
 
-BOT_VERSION = "v3.5.3"
+BOT_VERSION = "v3.5.4"
 UPDATE_NOTES = (
-    "• 전반적인 코드 구조 최적화 및 디스크 I/O 최소화가 지속 적용됩니다.\n"
-    "• `/업데이트공지` 시 명령어를 실행한 **해당 서버**의 공지 채널로 메시지가 전달됩니다.\n"
-    "• 무중단 자동 핫 리로드(mtime 감지) 시스템이 구동 중입니다."
+    "• 전체 시스템 가독성 및 서버 자원 사용 최적화가 적용되었습니다.\n"
+    "• `/업데이트공지` 실행 시 해당 명령어를 입력한 서버로만 패치노트가 발송됩니다.\n"
+    "• 음악 전용 채널 자동 구축 및 반응형 역할 관리 기능이 유지됩니다."
 )
 
-VERSION_FILE = "last_version.txt"
-SETTINGS_FILE = "server_settings.json"
+COG_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(COG_DIR)
+
+VERSION_FILE = os.path.join(BASE_DIR, "last_version.txt")
+SETTINGS_FILE = os.path.join(BASE_DIR, "server_settings.json")
 
 _settings_cache = None
 
@@ -45,7 +48,7 @@ class AdminCog(commands.Cog):
         self.bot = bot
 
     async def cog_load(self):
-        """Cog 진입 시 단 1회 버전 변경 체크 및 파일 기록"""
+        """Cog 진입 시 단 1회 버전 변경 체크 및 기록"""
         last_version = ""
         if os.path.exists(VERSION_FILE):
             try:

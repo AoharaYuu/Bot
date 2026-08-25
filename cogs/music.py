@@ -6,7 +6,10 @@ import asyncio
 import os
 import json
 
-SETTINGS_FILE = "server_settings.json"
+COG_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(COG_DIR)
+SETTINGS_FILE = os.path.join(BASE_DIR, "server_settings.json")
+
 _settings_cache = None
 
 def load_settings():
@@ -58,7 +61,6 @@ class MusicCog(commands.Cog):
         self.bot = bot
 
     async def cog_load(self):
-        """Cog 진입 시 1회만 카테고리/채널 검사 (반복적인 이벤트 실행 제거)"""
         for guild in self.bot.guilds:
             await self.ensure_music_category_and_channels(guild)
 
