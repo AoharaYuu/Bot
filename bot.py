@@ -120,7 +120,7 @@ async def load_extensions():
 
 @bot.event
 async def on_ready():
-    print(f'✅ {bot.user.name} 봇 가동 중 (v3.5.1)')
+    print(f'✅ {bot.user.name} 봇 가동 중 (v3.5.2)')
 
     for guild in bot.guilds:
         try:
