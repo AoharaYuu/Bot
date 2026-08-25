@@ -4,11 +4,11 @@ from discord.ext import commands
 import os
 import json
 
-BOT_VERSION = "v3.5.1"
+BOT_VERSION = "v3.5.2"
 UPDATE_NOTES = (
-    "• 부하 경감을 위한 이벤트 핸들러 최적화 및 디스크 I/O 최소화가 완료되었습니다.\n"
+    "• 전반적인 코드 구조 최적화 및 디스크 I/O 최소화가 지속 적용됩니다.\n"
     "• `/업데이트공지` 시 명령어를 실행한 **해당 서버**의 공지 채널로 메시지가 전달됩니다.\n"
-    "• 무중단 자동 핫 리로드 시스템이 지속 가동됩니다."
+    "• 무중단 자동 핫 리로드(mtime 감지) 시스템이 구동 중입니다."
 )
 
 VERSION_FILE = "last_version.txt"
@@ -45,7 +45,7 @@ class AdminCog(commands.Cog):
         self.bot = bot
 
     async def cog_load(self):
-        """Cog가 로드/리로드될 때 단 1회 실행 (on_ready 리스너 연산 부하 방지)"""
+        """Cog 진입 시 단 1회 버전 변경 체크 및 파일 기록"""
         last_version = ""
         if os.path.exists(VERSION_FILE):
             try:
@@ -196,7 +196,6 @@ class AdminCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         target_message = None
 
-        # 탐색 범위를 최근 30개로 축소하여 메모리/API 호출 최소화
         async for msg in channel.history(limit=30):
             if msg.author.id == self.bot.user.id and msg.embeds:
                 embed = msg.embeds[0]
