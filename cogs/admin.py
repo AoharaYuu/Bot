@@ -6,9 +6,9 @@ import json
 
 BOT_VERSION = "v3.5.1"
 UPDATE_NOTES = (
-    "• 최적화 및 안정화 업데이트가 완료되었습니다.\n"
-    "• `/업데이트공지` 명령어 및 자동 버전 변경 공지 발송 기능이 정상 작동합니다.\n"
-    "• 무중단 자동 핫 리로드(mtime 감지) 시스템이 구동 중입니다."
+    "• 부하 경감을 위한 이벤트 핸들러 최적화 및 디스크 I/O 최소화가 완료되었습니다.\n"
+    "• `/업데이트공지` 시 명령어를 실행한 **해당 서버**의 공지 채널로 메시지가 전달됩니다.\n"
+    "• 무중단 자동 핫 리로드 시스템이 지속 가동됩니다."
 )
 
 VERSION_FILE = "last_version.txt"
@@ -37,12 +37,31 @@ def save_settings(settings):
     try:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(settings, f, ensure_ascii=False, indent=4)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[경고] 설정 파일 저장 실패: {e}")
 
 class AdminCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    async def cog_load(self):
+        """Cog가 로드/리로드될 때 단 1회 실행 (on_ready 리스너 연산 부하 방지)"""
+        last_version = ""
+        if os.path.exists(VERSION_FILE):
+            try:
+                with open(VERSION_FILE, "r", encoding="utf-8") as f:
+                    last_version = f.read().strip()
+            except Exception:
+                pass
+
+        if last_version != BOT_VERSION:
+            print(f"📢 버전 변경 감지: '{last_version}' ➔ '{BOT_VERSION}'")
+            try:
+                with open(VERSION_FILE, "w", encoding="utf-8") as f:
+                    f.write(BOT_VERSION)
+                print(f"📝 '{VERSION_FILE}' 파일이 '{BOT_VERSION}' 버전으로 갱신되었습니다.")
+            except Exception as e:
+                print(f"[경고] 버전 파일 갱신 실패: {e}")
 
     def get_notice_channel(self, guild):
         settings = load_settings()
@@ -79,30 +98,6 @@ class AdminCog(commands.Cog):
             except Exception as e:
                 print(f"[경고] {guild.name} 공지 전송 실패: {e}")
         return None
-
-    @commands.Cog.listener()
-    async def on_ready(self):
-        # 1. 이전 저장 버전 확인
-        last_version = ""
-        if os.path.exists(VERSION_FILE):
-            try:
-                with open(VERSION_FILE, "r", encoding="utf-8") as f:
-                    last_version = f.read().strip()
-            except Exception:
-                pass
-
-        # 2. 버전 변경 감지 시 자동 공지 발송 및 기록
-        if last_version != BOT_VERSION:
-            print(f"📢 버전 변경 감지: '{last_version}' ➔ '{BOT_VERSION}' (자동 공지를 발송합니다)")
-            for guild in self.bot.guilds:
-                await self.send_update_notice_to_guild(guild)
-
-            try:
-                with open(VERSION_FILE, "w", encoding="utf-8") as f:
-                    f.write(BOT_VERSION)
-                print(f"📝 '{VERSION_FILE}' 파일이 '{BOT_VERSION}' 버전으로 갱신되었습니다.")
-            except Exception as e:
-                print(f"[경고] 버전 파일 갱신 실패: {e}")
 
     @app_commands.command(name="도움말", description="봇의 전체 명령어와 사용법을 확인합니다.")
     async def slash_help(self, interaction: discord.Interaction):
@@ -201,7 +196,8 @@ class AdminCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         target_message = None
 
-        async for msg in channel.history(limit=100):
+        # 탐색 범위를 최근 30개로 축소하여 메모리/API 호출 최소화
+        async for msg in channel.history(limit=30):
             if msg.author.id == self.bot.user.id and msg.embeds:
                 embed = msg.embeds[0]
                 if search_keyword in (embed.title or "") or search_keyword in (embed.description or ""):

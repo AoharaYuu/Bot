@@ -57,6 +57,11 @@ class MusicCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    async def cog_load(self):
+        """Cog 진입 시 1회만 카테고리/채널 검사 (반복적인 이벤트 실행 제거)"""
+        for guild in self.bot.guilds:
+            await self.ensure_music_category_and_channels(guild)
+
     async def ensure_music_category_and_channels(self, guild):
         settings = load_settings()
         guild_id_str = str(guild.id)
@@ -129,11 +134,6 @@ class MusicCog(commands.Cog):
             return True
             
         return False
-
-    @commands.Cog.listener()
-    async def on_ready(self):
-        for guild in self.bot.guilds:
-            await self.ensure_music_category_and_channels(guild)
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
